@@ -88,6 +88,22 @@ LUA_CPATH="$LUA_ROOT""/?.so;""$LUA_ROOT""/loadall.so;"
 -- for i,v in ipairs(loaders) do
 --   stdsearcher[i] = v 
 -- end
+local pkgbincmd = [[
+@echo off
+SETLOCAL
+SET BIN_ROOT=%~dp0
+SET BIN_ROOT=%BIN_ROOT:~0,-1%
+SET BIN_ROOT=%BIN_ROOT:\=/%
+SET LUA_ROOT=%BIN_ROOT%/..
+call %LUA_ROOT%/lua.cmd %LUA_ROOT%/{BIN} %*
+]]
+
+local pkgbinsh = [[
+#!/bin/bash
+BIN_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+LUA_ROOT="$BIN_ROOT""/.."
+source "$LUA_ROOT"/lua "$LUA_ROOT""/""{BIN}" $@
+]]
 
 --------------------------------------------------------------------------------
 -- This is the non-optional part that modifies package.loaders to allow for our
@@ -567,6 +583,16 @@ end
 
 local syncedhostrepo = { }
 
+local function writebin(pkgbin, ext, relpath, bin)
+  local cmd = pkgbin:gsub('{BIN}', relpath..'/'..bin)
+  local fname = rootpath..'/bin/'..bin..ext
+  local f = assert(io.open(fname, 'w'..(ext == '' and 'b' or '')))
+  f:write(cmd)
+  assert(f:close())
+  setexecflag(fname)
+end
+
+-- Discover all name/version available modules and update the bin directory.
 local function updatehostrepo()
   syncedhostrepo = { }
   for mod in lfs.dir(rootpath) do
@@ -581,6 +607,24 @@ local function updatehostrepo()
               end
            end
          end 
+      end
+    end
+  end
+  -- Check for bin.
+  -- TODO: Make version to be called configurable.
+  -- TODO: Perform updating of bin directory only when necessary, i.e. when 
+  -- TODO: a package is removed, added, updated or when the preferred version 
+  -- TODO: to be called has been modified (NYI).
+  emptydir(rootpath..'/bin')
+  for name in pairs(syncedhostrepo) do
+    local info = infobestchk(syncedhostrepo, name)
+    local relpath = info.relative_dir..'/__bin'
+    if lfs.attributes(rootpath..'/'..relpath) then
+      for bin in lfs.dir(rootpath..'/'..relpath) do
+        if bin ~= '.' and bin ~= ".." then
+          writebin(pkgbincmd, '.cmd', relpath, bin)
+          writebin(pkgbinsh,  '',     relpath, bin)
+        end
       end
     end
   end
