@@ -27,6 +27,8 @@ local function modzrootver(s)
   return r, v
 end
 
+-- TODO: LUA_VER= --> LUA=.
+-- TODO: Allow for chosing ARCH=32/64.
 local luabincmd = [[
 @echo off
 SETLOCAL
@@ -51,15 +53,15 @@ SET LJ_ARCH=x86
 SET LJ_CORE=%LUA_ROOT%/%LJ_VER%/%LJ_SYS%/%LJ_ARCH%
 SET LUA_PATH=%LUA_ROOT%/?/init.lua;%LUA_ROOT%/?.lua;%LJ_CORE%/?/init.lua;%LJ_CORE%/?.lua;
 SET LUA_CPATH=%LUA_ROOT%/?.dll;%LUA_ROOT%/loadall.dll;
-call "%LJ_CORE%/luajit" -l__init %*
+LUA_ROOT="$LUA_ROOT" LUA_PATH="$LUA_PATH" LUA_CPATH="$LUA_CPATH" "%LJ_CORE%/luajit" -l__init %*
 ]]
 
 local luabinsh = [[
 #!/bin/bash
-if [ -z "$LUA_VER" ]; then
-  if "$LUA_VER" == "2.1"; then
+if ! [ -z ${LUA_VER+x} ]; then
+  if [ "$LUA_VER" == "2.1" ]; then
     {V21SH}
-  elif "$LUA_VER" == "2.0"; then
+  elif [ "$LUA_VER" == "2.0" ]; then
     {V20SH}
   else
     echo "ERROR: LUA_VER=$LUA_VER is not a valid version, use 2.0 or 2.1" 1>&2 && exit 1
@@ -78,8 +80,8 @@ fi
 LJ_ARCH="x86"
 LJ_CORE="$LUA_ROOT""/""$LJ_VER""/""$LJ_SYS""/""$LJ_ARCH"
 LUA_PATH="$LUA_ROOT""/?/init.lua;""$LUA_ROOT""/?.lua;""$LJ_CORE""/?/init.lua;""$LJ_CORE""/?.lua;"
-LUA_CPATH="$LUA_ROOT""/?.dll;""$LUA_ROOT""/loadall.dll;"
-source "$LJ_CORE""/"luajit $@
+LUA_CPATH="$LUA_ROOT""/?.so;""$LUA_ROOT""/loadall.so;"
+"$LJ_CORE""/"luajit -l__init $@
 ]]
 
 -- local stdsearcher = { }
