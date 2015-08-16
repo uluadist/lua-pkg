@@ -1,10 +1,12 @@
 -- TODO: Add pkg.create().
 -- TODO: Bin support in lj/bin (config.lua for version choice).
+-- TODO: Use info.relative_dir for add, remove, update ecc ecc. 
 -- TODO: Have status(), available(), return info tables.
 -- TODO: Caching of downloaded __repo.lua (zips are already cached), update
 -- TODO: every X minutes, or have faster check for version.
 -- TODO: Replace unzip with a compression library.
 -- TODO: We are sorting vinfo more then necessary, optimize.
+-- TODO: Refactoring toward more readable code.
 
 local coremodule = { luajit = true, pkg = true }
 local repoaddr = 'http://scilua.org/pkg/'
@@ -84,10 +86,6 @@ LUA_CPATH="$LUA_ROOT""/?.so;""$LUA_ROOT""/loadall.so;"
 "$LJ_CORE""/"luajit -l__init $@
 ]]
 
--- local stdsearcher = { }
--- for i,v in ipairs(loaders) do
---   stdsearcher[i] = v 
--- end
 local pkgbincmd = [[
 @echo off
 SETLOCAL
@@ -113,6 +111,13 @@ source "$LUA_ROOT"/lua "$LUA_ROOT""/""{BIN}" $@
 
 local ffi = require 'ffi'
 
+local jos, jarch = jit.os, jit.arch
+
+local loaded       = package.loaded
+local searchers    = package.loaders
+local luasearcher  = searchers[2]
+local cluasearcher = searchers[3]
+
 -- Splits a required-name into the root, the eventual version, and the
 -- eventual sub-modules chaining.
 local function modprootverspec(s)
@@ -125,92 +130,83 @@ local function modprootverspec(s)
   end  
 end
 
-local searchers = package.loaders
-
-local luasearcher  = searchers[2]
-local cluasearcher = searchers[3]
-
--- Load the meta-data given that it can be found.
-local function getmeta(fullname)
-  local f = luasearcher(fullname..'.__meta')
-  if type(f) == 'function' then
-    return f(fullname..'.__meta')
-  end
-end
+-- TODO: luasyssearcher(name) ?
 
 -- Tries to load a CLua module with OS and arch dependent specifications, cannot 
--- be done via package.cpath.
+-- be done via package.cpath because of splitting between dir and base.
 -- TODO: Note that 'name' and 'name.name' correspond to the same file, OK?
-local function cluasearchersys(name)
+local function cluasyssearcher(name)
   local root, ver, spec = modprootverspec(name)
   local dir = ver ~= '' and root..'.'..ver or root
   local base = spec ~= '' and root..'.'..spec or root
   base = base:gsub('%.', '_') -- It's OK to substitute '.' with '_' after '-'.
   -- Char '-' is necessary due to call to luaopen_*.
-  return cluasearcher(dir..'.'..jit.os..'.'..jit.arch..'.-'..base)  
+  return cluasearcher(dir..'.'..jos..'.'..jarch..'.-'..base)  
 end
 
--- TODO: Cygwin uses 'cyg' instead of 'lib' ?
-local function clibpath(dir, spec)
-  if jit.os ~= 'Windows' and spec:sub(1, 3) ~= 'lib' then
-    spec = 'lib'..spec    
-  end
-  local cpath = package.cpath
-  if jit.os == 'OSX' then
-    cpath = cpath:gsub('%.so', '.dylib')
-  end
-  local fullname = dir..'.'..jit.os..'.'..jit.arch..'.'..spec
-  return package.searchpath(fullname, cpath)
-end
+table.insert(searchers, 4, cluasyssearcher)
 
--- TODO: Note it has side-effects and can throw an error, document.
--- For pre-loading of dynamic libraries loaded by module, either via explicit 
--- loading via ffi.load() or via implicit loading if the result of ffi.load()
--- or a CLua module depends on dynamic libraries.
--- TODO: Anchor in package.loaded, document.
-local function clibsearchersys(name)
-  local root, ver = modprootverspec(name)
-  local rootname = ver ~= '' and root..'.'..ver or root
-  local meta = getmeta(rootname)
-  if meta and meta.clib then
-    for _,clname in ipairs(meta.clib) do
-      local loaded, __clname = package.loaded, '__clib.'..clname
-      if not loaded[__clname] then
-        -- Might be present only for some OS - arch combinations.
-        local path = clibpath(rootname, clname)
-        if path then
-          -- An error is thrown if the clib is available but it fails to load.
-          local cl = ffi.load(path)
-          loaded[__clname] = function()
-            return cl
-          end
-        end
-      end
+-- TODO: Document the side effect.
+-- As the clua loader loads the library immediately if found, we have to 
+-- pre-load the dependencies prior to that or such loading will fail.
+local function withinit(searcher)
+  return function(name)
+    local rootname, vername = modprootverspec(name)
+    local initname = rootname..(vername and '.'..vername or '')..'.__init'
+    local initf = luasearcher(initname)
+    if type(initf) == 'function' then
+      initf(name) -- TODO: Document it's called with the same name of module.
     end
+    return searcher(name)
   end
-  return nil -- It's just pre-loading.
 end
 
-table.insert(searchers, 4, cluasearchersys)
-table.insert(searchers, 2, clibsearchersys)
-assert(#searchers == 6)
+for i=2,4 do
+  searchers[i] = withinit(searchers[i])
+end
 
 -- Now package.loaders is:
 -- [1] = preload
--- [2] = clibs preloader
--- [3] = lua
--- [4] = clua
--- [5] = cluasys
--- [6] = cluaroot
+-- [2] = withinit(lua)
+-- [3] = withinit(clua)
+-- [4] = withinit(cluasys)
+-- [5] = cluaroot
+-- TODO: Document.
 
---------------------------------------------------------------------------------
--- This part is optional: if used modules must be managed *only* via pkg.
+-- TODO: Cygwin uses 'cyg' instead of 'lib' ?
+local function clibpath(name, clib)
+  if jos ~= 'Windows' and clib:sub(1, 3) ~= 'lib' then
+    clib = 'lib'..clib    
+  end
+  local cpath = package.cpath
+  if jos == 'OSX' then
+    cpath = cpath:gsub('%.so', '.dylib')
+  end
+  return package.searchpath(name..'.'..jos..'.'..jarch..'.'..clib, cpath)
+end
+
+-- For pre-loading of dynamic libraries loaded by module, either via explicit 
+-- loading via ffi.load() or via implicit loading if the result of ffi.load()
+-- or a CLua module depends on dynamic libraries.
+-- TODO: Do not unload the module in package.loaded, document.
+local function loadclib(name)
+  local _, _, clib = name:find('clib_([^.]*)') -- TODO: Check '%.' or '.'.
+  local path = clibpath(name, clib)
+  return path and ffi.load(path)
+end
 
 local rootpath = os.getenv('LUA_ROOT') 
-if not rootpath then 
-  return true -- Stop here, pkg.* is optional.
+local hostpath = rootpath and rootpath..'/host'
+
+if not hostpath or not io.open(hostpath..'/init/__pkg.lua') then
+  -- Stop here, only pkg.loadclib is returned.
+  return {
+    loadclib = loadclib,
+  }
 end
-local hostpath = rootpath..'/host'
+
+--------------------------------------------------------------------------------
+-- Optional part: if used then packages must be managed via pkg module only.
 
 local lfs = require 'host.init.__lfs'
 local curl -- Loaded lazily to avoid circular dependency issue.
