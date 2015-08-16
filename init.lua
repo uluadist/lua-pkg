@@ -775,22 +775,8 @@ local function available(name, ver, opt)
 end
 
 --------------------------------------------------------------------------------
--- Return name of the module that required the current script, if any, or nil.
-local function requirecaller()
-  local f = debug.getinfo(3, 'S')
-  local s = f.source
-  if s:sub(1, 1) == '@' then
-    local _, l = s:find(rootpath)
-    -- Can be false if relative file (i.e. file run from command line).
-    if l then 
-      s = s:sub(l + 1):gsub('\\', '.'):gsub('/', '.')
-      return modprootverspec(s)
-    end
-  end
-end
-
 local function findinit(name)
-  local errs, init = { }
+  local errs = { }
   for _, searcher in ipairs(searchers) do
     local f = searcher(name)
     if type(f) == 'function' then
@@ -802,10 +788,13 @@ local function findinit(name)
   error("module '"..name.."' not found"..table.concat(errs))
 end
 
-local loaded = package.loaded
 local sentinel = function() end
 
-local function require1(name, plainname)
+-- Pre-loading of dynamic libraries loaded by module, either via explicit
+-- loading via ffi.load() or via implicit loading if the result of ffi.load()
+-- or a CLua module depends on dynamic libraries.
+-- TODO: Do not unload the module in package.loaded, document!
+local function requirefull(name, plainname)
   plainname = plainname or name
   local p = loaded[name]
   if p then
@@ -816,6 +805,7 @@ local function require1(name, plainname)
   end
   local init = findinit(name)
   loaded[name] = sentinel
+  -- Load the module.
   local res = init(name)
   -- Module() or others in init(name) might set loaded[name] or,
   -- in the case of versioned modules, loaded[plainname].
@@ -831,29 +821,34 @@ local function require1(name, plainname)
   return loaded[name]
 end
 
+local reqstack = { }
+
 -- Cannot simply modify package.loaders as for versioned modules package.loaded
 -- must *not* be set equal to the (unversioned) module name.
-_G.require = function(name, ver, opt)
+local function requirever(name, ver, opt)
   T(name, 1, 'string', true) T(ver, 2, 'string') T(opt, 3, 'table')
   -- 0: Give priority to versioned modules as module() or others might set
   --    loaded[name] breaking the 'load correct version' paradigm.
   local hostr = hostrepo()
   local rootname, _, specname = modprootverspec(name)
-  if hostr[rootname] then
+  if hostr[rootname] then -- Requiring a versioned module.
     opt = optdefaults(opt)
-    local rootfrom, verfrom = requirecaller()
     if not ver then
       -- 1V: check if calling from a module which has meta info, if so set
       --     version.
+      local rootfrom, verfrom = modprootverspec(reqstack[#reqstack - 1] or '')
       if rootfrom then -- The require call come from a module.
         local meta = getmeta(rootfrom..(verfrom and '.'..verfrom or ''))
         if meta then -- And the module has versioning info.
           if rootname ~= rootfrom then
-            if not meta.require and meta.require[rootname] then
-              iow(opt, 'WARN: module "'..rootfrom..'" is missing version info '
-                     ..'for dependency "'..rootname..'"\n')
+            if not (meta.require and meta.require[rootname]) then
+              if rootname ~= 'pkg' then
+                iow(opt, 'WARN: module "'..rootfrom..'" is missing version '
+                       ..'info for dependency "'..rootname..'"\n')
               end
+            else
               ver = meta.require[rootname]
+            end
           else
             ver = meta.version
           end
@@ -868,11 +863,23 @@ _G.require = function(name, ver, opt)
     if specname ~= '' then
       fullname = fullname..'.'..specname
     end
-    return require1(fullname, name)
+    return requirefull(fullname, name)
   else
     -- 1NV: simply return require as usual.
-    return require1(name)
+    return requirefull(name)
   end
+end
+
+-- TODO: Only require is traced: dofile() and loadfile() are not, document!
+_G.require = function(name, ver, opt)
+  reqstack[#reqstack + 1] = name
+  local ok, mod = xpcall(requirever, debug.traceback, name, ver, opt)
+  reqstack[#reqstack] = nil
+  if not ok then
+    print(mod)
+    os.exit(1)
+  end
+  return mod
 end
 
 --------------------------------------------------------------------------------
