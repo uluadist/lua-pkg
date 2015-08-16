@@ -377,12 +377,14 @@ local function esc(s)
   return '"'..s..'"'
 end
 
-local unzipcmd = esc(debug.getinfo(1).source:sub(2, -9)..'Windows/unzip.exe')
-               ..' -qq '
+local nullpath = jos == 'Windows' and 'nul' or '/dev/null'
+local pkgpath = rootpath..'/'..(...):gsub('%.', '/')..'/'
+local unzipcmd = esc((jos ~= 'OSX'     and pkgpath..jos..'/' or '')..'unzip')
+local chmodcmd = esc((jos == 'Windows' and pkgpath..jos..'/' or '')..'chmod')
 
 local function unzip(inpath, outpath)
-  local cmd = esc(unzipcmd..esc(inpath)..' -d '..esc(outpath))
-  if os.execute(cmd) ~= 0 then
+  local cmd = unzipcmd..' -qq '..esc(inpath)..' -d '..esc(outpath)
+  if os.execute(jos == 'Windows' and esc(cmd) or cmd) ~= 0 then
     error('failed to execute: '..cmd)
   end
 end
@@ -396,15 +398,17 @@ end
 
 -- Do its best to remove everything in a path, no error thrown.
 local function emptydir(path)
-  for file in lfs.dir(path) do
-    if file ~= '.' and file ~= '..' then
-      local f = path..'/'..file
-      local attr = lfs.attributes(f)
-      if attr.mode == 'directory' then
-        emptydir(f) -- Recurse.
-        lfs.rmdir(f)
-      else
-        os.remove(f)
+  if lfs.attributes(path) and lfs.attributes(path).mode == 'directory' then
+    for file in lfs.dir(path) do
+      if file ~= '.' and file ~= '..' then
+        local f = path..'/'..file
+        local attr = lfs.attributes(f)
+        if attr.mode == 'directory' then
+          emptydir(f) -- Recurse.
+          lfs.rmdir(f)
+        else
+          os.remove(f)
+        end
       end
     end
   end
@@ -440,7 +444,7 @@ local function versplit(s)
   local kdn = tonumber(kd) or 0
   local rdn = tonumber(rd) or 0
   if f ~= 1 or l ~= #s or s:sub(l, l) == '.' or s:find('%.%.') or s:find('%.%-')
-  or not kan --[[or (ka == '' and kd ~= '')]] then -- Do not document!
+  or not kan then
     error('"'..s..'" is not a valid module version')
   end
   return mn, nn, pn, kan, kdn, rdn, specval(n, p, ka, kd, rd)
@@ -547,6 +551,12 @@ local function infoinsert(repo, name, info)
 end
 
 --------------------------------------------------------------------------------
+-- Load the meta-data given that it can be found.
+local function getmeta(fullname)
+  local f = luasearcher(fullname..'.__meta')
+  return type(f) == 'function' and f(fullname..'.__meta')
+end
+
 local function okdeprepo(repo)
   local o = { }
   repeat 
@@ -605,7 +615,9 @@ local function updatehostrepo()
          for ver in lfs.dir(rootpathmod) do
            if ver ~= "." and ver ~= ".." then
               local meta = getmeta(mod..'.'..ver)
-              if meta then
+              if meta then -- This is a module.
+                -- Notice that ver is not used at all for building the repo!
+                meta.relative_dir = mod..'/'..ver
                 infoinsert(syncedhostrepo, mod, meta)
               end
            end
@@ -642,8 +654,8 @@ end
 
 local function webrepo(opt)
   opt = optdefaults(opt)
-  if opt.hostrepo then
-    return dofile(hostpath..'/pkg/__repo.lua')
+  if opt.localrepo then
+    return dofile(opt.localrepo..'/__repo.lua')
   else
     local repo = download(repoaddr, '__repo.lua', nil, opt)
     repo = assert(loadstring(repo))()
@@ -711,7 +723,7 @@ local function updatepkgmod(opt)
       io.write('Updated version of module "pkg" is available, updating:\n')
       local addr, remr = { }, { }
       toupdate('pkg', hostr, webr, addr, remr)
-      updatedpkg = performupdate(opt, hostr, webr, addr, remr)
+      updatedpkg = performupdate(opt, hostr, addr, remr)
       if updatedpkg then
         error('Restart LuaJIT to apply changes to module "pkg"')
       else
@@ -736,7 +748,8 @@ local function search(repo, name)
 end
 
 local function status(name, ver)
-  T(name, 1, 'string', true) T(ver, 2, 'string')
+  T(name, 1, 'string') T(ver, 2, 'string')
+  name = name or '?'
   local hostr = hostrepo()
   if name == '?' then
     io.write('Installed modules:\n', rtostr(hostr), '\n')
@@ -748,7 +761,8 @@ local function status(name, ver)
 end
 
 local function available(name, ver, opt)
-  T(name, 1, 'string', true) T(ver, 2, 'string') T(opt, 3, 'table')
+  T(name, 1, 'string') T(ver, 2, 'string') T(opt, 3, 'table')
+  name = name or '?'
   opt = optdefaults(opt)
   local _, webr = updatepkgmod(opt)
   if name == '?' then
@@ -838,8 +852,8 @@ _G.require = function(name, ver, opt)
             if not meta.require and meta.require[rootname] then
               iow(opt, 'WARN: module "'..rootfrom..'" is missing version info '
                      ..'for dependency "'..rootname..'"\n')
-            end
-            ver = meta.require[rootname]
+              end
+              ver = meta.require[rootname]
           else
             ver = meta.version
           end
@@ -899,7 +913,7 @@ local function updateinit(hostr, addr, remr)
     local fcmd = assert(io.open(rootpath..'/lua.cmd', 'w'))
     fcmd:write((luabincmd:gsub('{(.-)}', vermap)))
     assert(fcmd:close())
-    local fsh = assert(io.open(rootpath..'/lua.sh', 'w'))
+    local fsh = assert(io.open(rootpath..'/lua', 'wb'))
     fsh:write((luabinsh:gsub('{(.-)}', vermap)))
     assert(fsh:close())
     setexecflag(rootpath..'/lua')
@@ -921,7 +935,8 @@ local function pkgsdownload(fns, fvs, opt)
   local todown = { }
   for i=1,#fns do
     local fname = fns[i]..'~'..fvs[i]..'.zip'
-    local f = io.open(hostpath..'/pkg/'..fname)
+    local pkgdir = opt.localrepo or hostpath..'/pkg'
+    local f = io.open(pkgdir..'/'..fname)
     if not f then
       table.insert(todown, fname)
     else
@@ -933,9 +948,10 @@ local function pkgsdownload(fns, fvs, opt)
   end
 end
 
-local function pkgsunzip(fns, fvs)
+local function pkgsunzip(fns, fvs, opt)
+  local pkgdir = opt.localrepo or hostpath..'/pkg'
   for i=1,#fns do
-    unzip(hostpath..'/pkg/'..fns[i]..'~'..fvs[i]..'.zip', hostpath..'/tmp')
+    unzip(pkgdir..'/'..fns[i]..'~'..fvs[i]..'.zip', hostpath..'/tmp')
   end
 end
 
@@ -1083,7 +1099,7 @@ toupdate = function(name, hostr, webr, addr, remr)
   end
 end
 
-performupdate = function(opt, hostr, webr, addr, remr)
+performupdate = function(opt, hostr, addr, remr)
   if next(addr) then
     iow(opt, 'Installing updated modules and their requirements:\n')
     iow(opt, rtostr(addr), '\n')
@@ -1109,12 +1125,14 @@ local function update(opt)
   for hname, _ in pairs(hostr) do
     toupdate(hname, hostr, webr, addr, remr)
   end
-  performupdate(opt, hostr, webr, addr, remr)
+  performupdate(opt, hostr, addr, remr)
 end
 
 --------------------------------------------------------------------------------
 
 return {
+  loadclib  = loadclib,
+
   available = available,
   status    = status,
   add       = add,
