@@ -387,6 +387,13 @@ local function unzip(inpath, outpath)
   end
 end
 
+local function setexecflag(fname)
+  -- Useless to capture eventual failures here.
+  -- As users might be different use a+x, not (u)+x.
+  local cmd = chmodcmd..' a+x '..esc(fname)..' > '..nullpath..' 2>&1'
+  os.execute(jos == 'Windows' and esc(cmd) or cmd)
+end
+
 -- Do its best to remove everything in a path, no error thrown.
 local function emptydir(path)
   for file in lfs.dir(path) do
@@ -895,6 +902,7 @@ local function updateinit(hostr, addr, remr)
     local fsh = assert(io.open(rootpath..'/lua.sh', 'w'))
     fsh:write((luabinsh:gsub('{(.-)}', vermap)))
     assert(fsh:close())
+    setexecflag(rootpath..'/lua')
   end
 end
 
