@@ -55,7 +55,7 @@ SET LJ_ARCH=x86
 SET LJ_CORE=%LUA_ROOT%/%LJ_VER%/%LJ_SYS%/%LJ_ARCH%
 SET LUA_PATH=%LUA_ROOT%/?/init.lua;%LUA_ROOT%/?.lua;%LJ_CORE%/?/init.lua;%LJ_CORE%/?.lua;
 SET LUA_CPATH=%LUA_ROOT%/?.dll;%LUA_ROOT%/loadall.dll;
-LUA_ROOT="$LUA_ROOT" LUA_PATH="$LUA_PATH" LUA_CPATH="$LUA_CPATH" "%LJ_CORE%/luajit" -l__init %*
+"%LJ_CORE%/luajit" -l__init %*
 ]]
 
 local luabinsh = [[
@@ -83,7 +83,7 @@ LJ_ARCH="x86"
 LJ_CORE="$LUA_ROOT""/""$LJ_VER""/""$LJ_SYS""/""$LJ_ARCH"
 LUA_PATH="$LUA_ROOT""/?/init.lua;""$LUA_ROOT""/?.lua;""$LJ_CORE""/?/init.lua;""$LJ_CORE""/?.lua;"
 LUA_CPATH="$LUA_ROOT""/?.so;""$LUA_ROOT""/loadall.so;"
-"$LJ_CORE""/"luajit -l__init $@
+LUA_ROOT="$LUA_ROOT" LUA_PATH="$LUA_PATH" LUA_CPATH="$LUA_CPATH" "$LJ_CORE""/"luajit -l__init $@
 ]]
 
 local pkgbincmd = [[
