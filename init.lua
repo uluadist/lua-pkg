@@ -1,6 +1,6 @@
 -- TODO: Add pkg.create().
 -- TODO: Bin support in lj/bin (config.lua for version choice).
--- TODO: Use info.relative_dir for add, remove, update ecc ecc. 
+-- TODO: Use info.version_dir for add, remove, update ecc ecc. 
 -- TODO: Have status(), available(), return info tables.
 -- TODO: Caching of downloaded __repo.lua (zips are already cached), update
 -- TODO: every X minutes, or have faster check for version.
@@ -180,7 +180,7 @@ local function clibpath(name, clib)
   end
   local cpath = package.cpath
   if jos == 'OSX' then
-    cpath = cpath:gsub('%.so', '.dylib')
+    cpath = cpath:gsub('%.so', '.dylib') -- TODO: Check.
   end
   return package.searchpath(name..'.'..jos..'.'..jarch..'.'..clib, cpath)
 end
@@ -617,7 +617,7 @@ local function updatehostrepo()
               local meta = getmeta(mod..'.'..ver)
               if meta then -- This is a module.
                 -- Notice that ver is not used at all for building the repo!
-                meta.relative_dir = mod..'/'..ver
+                meta.version_dir = ver
                 infoinsert(syncedhostrepo, mod, meta)
               end
            end
@@ -633,7 +633,7 @@ local function updatehostrepo()
   emptydir(rootpath..'/bin')
   for name in pairs(syncedhostrepo) do
     local info = infobestchk(syncedhostrepo, name)
-    local relpath = info.relative_dir..'/__bin'
+    local relpath = name..'/'..info.version_dir..'/__bin'
     if lfs.attributes(rootpath..'/'..relpath) then
       for bin in lfs.dir(rootpath..'/'..relpath) do
         if bin ~= '.' and bin ~= ".." then
@@ -858,7 +858,7 @@ local function requirever(name, ver, opt)
     -- 2V: check best matching module.
     local info = infobestchk(hostr, rootname, ver)
     -- 3V: return versioned module.  
-    local matchver = topath(info.version)
+    local matchver = info.version_dir
     local fullname = rootname..'.'..matchver
     if specname ~= '' then
       fullname = fullname..'.'..specname
@@ -876,8 +876,7 @@ _G.require = function(name, ver, opt)
   local ok, mod = xpcall(requirever, debug.traceback, name, ver, opt)
   reqstack[#reqstack] = nil
   if not ok then
-    print(mod)
-    os.exit(1)
+    error(mod) -- TODO: Avoid double stack printing.
   end
   return mod
 end
@@ -885,7 +884,7 @@ end
 --------------------------------------------------------------------------------
 local function updateinit1(fn, fv)
   local f = assert(io.open(hostpath..'/init/__'..fn..'.lua', 'w'))
-  f:write('return require "'..fn..'.'..topath(fv)..'"\n')
+  f:write('return require "'..fn..'.'..fv..'"\n')
   assert(f:close())
 end
 
@@ -895,16 +894,16 @@ local function updateinit(hostr, addr, remr)
   addr = addr or { }
   remr = remr or { }
   if addr.pkg or remr.pkg then 
-    updateinit1('pkg', infobestchk(hostr, 'pkg').version) -- MODIFICATION.
+    updateinit1('pkg', infobestchk(hostr, 'pkg').version_dir) -- MODIFICATION.
   end
   if addr.lfs or remr.lfs then
-    updateinit1('lfs', infobestchk(hostr, 'lfs').version) -- MODIFICATION.
+    updateinit1('lfs', infobestchk(hostr, 'lfs').version_dir) -- MODIFICATION.
   end
   if addr.luajit or remr.luajit then
     local lua20 = infobest(hostr, 'luajit', '2.0',      2)
     local lua21 = infobest(hostr, 'luajit', '2.1.head', 2)
-    local lua20ver = lua20 and 'luajit/'..topath(lua20.version)
-    local lua21ver = lua21 and 'luajit/'..topath(lua21.version)
+    local lua20ver = lua20 and 'luajit/'..lua20.version_dir
+    local lua21ver = lua21 and 'luajit/'..lua21.version_dir
     local vermap = {
       V20CMD = lua20ver and 'SET LJ_VER='..lua20ver or
                'echo ERROR: luajit 2.0 not installed 1>&2 && exit /b 1',
@@ -927,12 +926,23 @@ local function updateinit(hostr, addr, remr)
   end
 end
 
-local function filenames(repo)  
+local function filenames_add(repo)  
   local fns, fvs = { }, { }
   for name,vinfo in pairs(repo) do
     for i=1,#vinfo do
       table.insert(fns, name)
       table.insert(fvs, vinfo[i].version)
+    end
+  end
+  return fns, fvs
+end
+
+local function filenames_remove(repo)  
+  local fns, fvs = { }, { }
+  for name,vinfo in pairs(repo) do
+    for i=1,#vinfo do
+      table.insert(fns, name)
+      table.insert(fvs, vinfo[i].version_dir)
     end
   end
   return fns, fvs
@@ -979,11 +989,11 @@ end
 local function pkgsremove(fns, fvs)
   for i=1,#fns do
     local fn, fv = fns[i], fvs[i]
-    local targetpath = rootpath..'/'..fn..'/'..topath(fv)
+    local targetpath = rootpath..'/'..fn..'/'..fv
     if not lfs.attributes(targetpath) then -- Should never happen.
       error('path "'..targetpath..'" does not exist')
     end
-    local backuppath = hostpath..'/tmp/'..fn..'_'..topath(fv)
+    local backuppath = hostpath..'/tmp/'..fn..'_'..fv
     assert(os.rename(targetpath, backuppath)) -- MODIFICATION.
     lfs.rmdir(rootpath..'/'..fn) -- Only if empty MODIFICATION.
   end
@@ -1010,7 +1020,7 @@ end
 
 local performadd = finalize(function(hostr, addr, opt)
   emptydir(hostpath..'/tmp')
-  local fns, fvs = filenames(addr)
+  local fns, fvs = filenames_add(addr)
   pkgsdownload(fns, fvs, opt)
   pkgsunzip(fns, fvs, opt)
   pkgsinstall(fns, fvs, opt)
@@ -1038,7 +1048,7 @@ end
 
 local performremove = finalize(function(hostr, remr, opt)
   emptydir(hostpath..'/tmp')
-  local fns, fvs = filenames(remr)
+  local fns, fvs = filenames_remove(remr)
   pkgsremove(fns, fvs, opt)
   updateinit(hostr, nil, remr)
   updatehostrepo()
