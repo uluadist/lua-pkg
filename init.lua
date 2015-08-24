@@ -629,6 +629,9 @@ local function updatehostrepo()
   -- TODO: Perform updating of bin directory only when necessary, i.e. when 
   -- TODO: a package is removed, added, updated or when the preferred version 
   -- TODO: to be called has been modified (NYI).
+  if not lfs.attributes(rootpath..'/bin') then
+    lfs.mkdir(rootpath..'/bin')
+  end
   emptydir(rootpath..'/bin')
   for name in pairs(syncedhostrepo) do
     local info = infobestchk(syncedhostrepo, name)
