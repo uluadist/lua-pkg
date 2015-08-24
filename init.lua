@@ -29,19 +29,18 @@ local function modzrootver(s)
   return r, v
 end
 
--- TODO: LUA_VER= --> LUA=.
--- TODO: Allow for chosing ARCH=32/64.
+-- TODO: Allow LJ_ARCH=x86/x64.
 local luabincmd = [[
 @echo off
 SETLOCAL
-if defined LUA_VER (
-  if "%LUA_VER%"=="2.1" (
+if defined LJ_VER (
+  if "%LJ_VER%"=="2.1" (
     {V21CMD}
   ) else (
-    if "%LUA_VER%"=="2.0" (
+    if "%LJ_VER%"=="2.0" (
       {V20CMD}
     ) else (
-      echo ERROR: LUA_VER=%LUA_VER% is not a valid version, use 2.0 or 2.1 1>&2 && exit /b 1
+      echo ERROR: LJ_VER=%LJ_VER% is not a valid version, use 2.0 or 2.1 1>&2 && exit /b 1
     )
   )
 ) else (
@@ -52,7 +51,7 @@ SET LUA_ROOT=%LUA_ROOT:~0,-1%
 SET LUA_ROOT=%LUA_ROOT:\=/%
 SET LJ_SYS=Windows
 SET LJ_ARCH=x86
-SET LJ_CORE=%LUA_ROOT%/%LJ_VER%/%LJ_SYS%/%LJ_ARCH%
+SET LJ_CORE=%LUA_ROOT%/%LJ_VER_EXT%/%LJ_SYS%/%LJ_ARCH%
 SET LUA_PATH=%LUA_ROOT%/?/init.lua;%LUA_ROOT%/?.lua;%LJ_CORE%/?/init.lua;%LJ_CORE%/?.lua;
 SET LUA_CPATH=%LUA_ROOT%/?.dll;%LUA_ROOT%/loadall.dll;
 "%LJ_CORE%/luajit" -l__init %*
@@ -60,13 +59,13 @@ SET LUA_CPATH=%LUA_ROOT%/?.dll;%LUA_ROOT%/loadall.dll;
 
 local luabinsh = [[
 #!/bin/bash
-if ! [ -z ${LUA_VER+x} ]; then
-  if [ "$LUA_VER" == "2.1" ]; then
+if ! [ -z ${LJ_VER+x} ]; then
+  if [ "$LJ_VER" == "2.1" ]; then
     {V21SH}
-  elif [ "$LUA_VER" == "2.0" ]; then
+  elif [ "$LJ_VER" == "2.0" ]; then
     {V20SH}
   else
-    echo "ERROR: LUA_VER=$LUA_VER is not a valid version, use 2.0 or 2.1" 1>&2 && exit 1
+    echo "ERROR: LJ_VER=$LJ_VER is not a valid version, use 2.0 or 2.1" 1>&2 && exit 1
   fi
 else
   {V00SH}
@@ -80,7 +79,7 @@ else
   echo "ERROR - Unsupported system: ""$(uname -s)" 1>&2 && exit 1
 fi
 LJ_ARCH="x86"
-LJ_CORE="$LUA_ROOT""/""$LJ_VER""/""$LJ_SYS""/""$LJ_ARCH"
+LJ_CORE="$LUA_ROOT""/""$LJ_VER_EXT""/""$LJ_SYS""/""$LJ_ARCH"
 LUA_PATH="$LUA_ROOT""/?/init.lua;""$LUA_ROOT""/?.lua;""$LJ_CORE""/?/init.lua;""$LJ_CORE""/?.lua;"
 LUA_CPATH="$LUA_ROOT""/?.so;""$LUA_ROOT""/loadall.so;"
 LUA_ROOT="$LUA_ROOT" LUA_PATH="$LUA_PATH" LUA_CPATH="$LUA_CPATH" "$LJ_CORE""/"luajit -l__init $@
@@ -905,13 +904,13 @@ local function updateinit(hostr, addr, remr)
     local lua20ver = lua20 and 'luajit/'..lua20.version_dir
     local lua21ver = lua21 and 'luajit/'..lua21.version_dir
     local vermap = {
-      V20CMD = lua20ver and 'SET LJ_VER='..lua20ver or
+      V20CMD = lua20ver and 'SET LJ_VER_EXT='..lua20ver or
                'echo ERROR: luajit 2.0 not installed 1>&2 && exit /b 1',
-      V21CMD = lua21ver and 'SET LJ_VER='..lua21ver or
+      V21CMD = lua21ver and 'SET LJ_VER_EXT='..lua21ver or
                'echo ERROR: luajit 2.1 not installed 1>&2 && exit /b 1',
-      V20SH = lua20ver and 'LJ_VER="'..lua20ver..'"' or
+      V20SH = lua20ver and 'LJ_VER_EXT="'..lua20ver..'"' or
                'echo "ERROR: luajit 2.0 not installed" 1>&2 && exit 1',
-      V21SH = lua21ver and 'LJ_VER="'..lua21ver..'"' or
+      V21SH = lua21ver and 'LJ_VER_EXT="'..lua21ver..'"' or
                'echo "ERROR: luajit 2.1 not installed" 1>&2 && exit 1',      
     }
     vermap.V00CMD = lua21ver and vermap.V21CMD or vermap.V20CMD
