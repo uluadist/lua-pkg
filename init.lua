@@ -1,12 +1,11 @@
 -- TODO: Add pkg.create().
 -- TODO: Bin support in lj/bin (config.lua for version choice).
--- TODO: Use info.version_dir for add, remove, update ecc ecc. 
 -- TODO: Have status(), available(), return info tables.
--- TODO: Caching of downloaded __repo.lua (zips are already cached), update
--- TODO: every X minutes, or have faster check for version.
--- TODO: Replace unzip with a compression library.
 -- TODO: We are sorting vinfo more then necessary, optimize.
 -- TODO: Refactoring toward more readable code.
+-- TODO: Add safety against removal of user-developed modules, i.e. when 
+-- TODO: topath(info.version) is different from the installed version path.
+-- TODO: Verify downgrading core packages is safe.
 
 local coremodule = { luajit = true, pkg = true }
 local repoaddr = 'http://scilua.org/pkg/'
@@ -656,13 +655,10 @@ end
 
 local function webrepo(opt)
   opt = optdefaults(opt)
-  if opt.localrepo then
-    return dofile(opt.localrepo..'/__repo.lua')
-  else
-    local repo = download(repoaddr, '__repo.lua', nil, opt)
-    repo = assert(loadstring(repo))()
-    return repo
-  end
+  local addr = opt.repository or repoaddr
+  local repo = download(addr, '__repo.lua', nil, opt)
+  repo = assert(loadstring(repo))()
+  return repo
 end
 
 local function lexlt(x, y)
@@ -954,7 +950,7 @@ local function pkgsdownload(fns, fvs, opt)
   local todown = { }
   for i=1,#fns do
     local fname = fns[i]..'~'..fvs[i]..'.zip'
-    local pkgdir = opt.localrepo or hostpath..'/pkg'
+    local pkgdir = hostpath..'/pkg'
     local f = io.open(pkgdir..'/'..fname)
     if not f then
       table.insert(todown, fname)
@@ -963,12 +959,13 @@ local function pkgsdownload(fns, fvs, opt)
     end
   end
   if #todown > 0 then
-    download(repoaddr, todown, hostpath..'/pkg', opt)
+    local addr = opt.repository or repoaddr
+    download(addr, todown, hostpath..'/pkg', opt)
   end
 end
 
-local function pkgsunzip(fns, fvs, opt)
-  local pkgdir = opt.localrepo or hostpath..'/pkg'
+local function pkgsunzip(fns, fvs)
+  local pkgdir = hostpath..'/pkg'
   for i=1,#fns do
     unzip(pkgdir..'/'..fns[i]..'~'..fvs[i]..'.zip', hostpath..'/tmp')
   end
@@ -1024,7 +1021,7 @@ local performadd = finalize(function(hostr, addr, opt)
   emptydir(hostpath..'/tmp')
   local fns, fvs = filenames_add(addr)
   pkgsdownload(fns, fvs, opt)
-  pkgsunzip(fns, fvs, opt)
+  pkgsunzip(fns, fvs)
   pkgsinstall(fns, fvs, opt)
   updatehostrepo() -- Must come before updateinit!
   updateinit(hostr, addr, nil)
