@@ -218,7 +218,7 @@ end
 
 local function finalize(f, onerr)
   return function(...)
-    local ok, err = pcall(f, ...)
+    local ok, err = xpcall(f, debug.traceback, ...)
     if not ok then
       onerr()
       error(err)
