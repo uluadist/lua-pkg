@@ -1024,8 +1024,8 @@ local performadd = finalize(function(hostr, addr, opt)
   pkgsdownload(fns, fvs, opt)
   pkgsunzip(fns, fvs, opt)
   pkgsinstall(fns, fvs, opt)
+  updatehostrepo() -- Must come before updateinit!
   updateinit(hostr, addr, nil)
-  updatehostrepo()
 end, updatehostrepo)
 
 local function add(name, version, opt)
@@ -1050,8 +1050,8 @@ local performremove = finalize(function(hostr, remr, opt)
   emptydir(hostpath..'/tmp')
   local fns, fvs = filenames_remove(remr)
   pkgsremove(fns, fvs, opt)
+  updatehostrepo() -- Must come before updateinit!
   updateinit(hostr, nil, remr)
-  updatehostrepo()
 end, updatehostrepo)
 
 local function remove(name, version, opt)
