@@ -1,5 +1,5 @@
 return {
-  version = "1.0.beta1",
+  version = "1.0.beta2",
   require = {
     cURL = "0.3.1",
     lfs  = "1.6.2",
