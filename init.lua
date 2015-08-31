@@ -720,7 +720,7 @@ local function updatepkgmod(opt)
       io.write('Updated version of module "pkg" is available, updating:\n')
       local addr, remr = { }, { }
       toupdate('pkg', hostr, webr, addr, remr)
-      updatedpkg = performupdate(opt, hostr, addr, remr)
+      updatedpkg = performupdate(opt, addr, remr)
       if updatedpkg then
         error('Restart LuaJIT to apply changes to module "pkg"')
       else
@@ -887,7 +887,9 @@ end
 
 -- TODO: Add safety net, it's the only function that might leave system in 
 -- TODO: inconsistent state.
-local function updateinit(hostr, addr, remr)
+local function updateinit(addr, remr)
+  updatehostrepo()
+  local hostr = hostrepo()
   addr = addr or { }
   remr = remr or { }
   if addr.pkg or remr.pkg then 
@@ -1016,14 +1018,13 @@ local function toadd(name, version, hostr, webr, addr)
   end
 end
 
-local performadd = finalize(function(hostr, addr, opt)
+local performadd = finalize(function(addr, opt)
   emptydir(hostpath..'/tmp')
   local fns, fvs = filenames_add(addr)
   pkgsdownload(fns, fvs, opt)
   pkgsunzip(fns, fvs)
   pkgsinstall(fns, fvs, opt)
-  updatehostrepo() -- Must come before updateinit!
-  updateinit(hostr, addr, nil)
+  updateinit(addr, nil)
 end, updatehostrepo)
 
 local function add(name, version, opt)
@@ -1036,7 +1037,7 @@ local function add(name, version, opt)
     iow(opt, 'Installing matching module and its requirements:\n')
     iow(opt, rtostr(addr), '\n')
     if confirm(opt) then
-      performadd(hostr, addr, opt)
+      performadd(addr, opt)
       iow(opt, 'Done\n')
     end
   else
@@ -1044,12 +1045,11 @@ local function add(name, version, opt)
   end  
 end
 
-local performremove = finalize(function(hostr, remr, opt)
+local performremove = finalize(function(remr, opt)
   emptydir(hostpath..'/tmp')
   local fns, fvs = filenames_remove(remr)
   pkgsremove(fns, fvs, opt)
-  updatehostrepo() -- Must come before updateinit!
-  updateinit(hostr, nil, remr)
+  updateinit(nil, remr)
 end, updatehostrepo)
 
 local function remove(name, version, opt)
@@ -1083,7 +1083,7 @@ local function remove(name, version, opt)
   iow(opt, 'Removing matching modules and modules that depend on them:\n')
   iow(opt, rtostr(remr), '\n')
   if confirm(opt) then
-    performremove(hostr, remr, opt)
+    performremove(remr, opt)
     iow(opt, 'Done\n')
   end
 end
@@ -1114,15 +1114,15 @@ toupdate = function(name, hostr, webr, addr, remr)
   end
 end
 
-performupdate = function(opt, hostr, addr, remr)
+performupdate = function(opt, addr, remr)
   if next(addr) then
     iow(opt, 'Installing updated modules and their requirements:\n')
     iow(opt, rtostr(addr), '\n')
     iow(opt, 'Removing obsoleted modules:\n')
     iow(opt, rtostr(remr), '\n')
     if confirm(opt) then
-      performadd(hostr, addr, opt)
-      performremove(hostr, remr, opt)
+      performadd(addr, opt)
+      performremove(remr, opt)
       iow(opt, 'Done\n')
       return true
     end
@@ -1140,7 +1140,7 @@ local function update(opt)
   for hname, _ in pairs(hostr) do
     toupdate(hname, hostr, webr, addr, remr)
   end
-  performupdate(opt, hostr, addr, remr)
+  performupdate(opt, addr, remr)
 end
 
 --------------------------------------------------------------------------------
