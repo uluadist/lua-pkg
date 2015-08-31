@@ -8,7 +8,7 @@
 -- TODO: Verify downgrading core packages is safe.
 
 local coremodule = { luajit = true, pkg = true }
-local repoaddr = 'http://scilua.org/pkg/'
+local repoaddr = 'http://ulua.scilua.org'
 
 local modp_root_ver_spec_fmt = '([^%.]*)%.(%d+_?%d*_?%d*_?%a*%d*%+?%d*)%.?(.*)'
 local modp_root_spec_fmt     = '([^%.]*)%.?(.*)'
@@ -330,7 +330,7 @@ local function dlbuf()
 end
 
 -- TODO: Check failures: 
-local function download(addr, fnames, out, opt)
+local function download(addr, what, out, opt)
   opt = optdefaults(opt)
   curl = curl or require 'cURL'
   local ce = curl.easy()
@@ -341,15 +341,14 @@ local function download(addr, fnames, out, opt)
   if opt and opt.proxyauth then
     ce:setopt_proxyuserpwd(opt.proxyauth)
   end
-  if type(out) == 'string' then
+  if type(out) == 'table' then
     ce:setopt_noprogress(false)
-    local len = maxlen(fnames)
+    local len = maxlen(what)
     iow(opt, 'Downloading:\n')
-    for i=1,#fnames do
-      local dfname = fnames[i]:gsub(' ', '%20')
-      ce:setopt_url(addr..dfname)
+    for i=1,#what do
+      ce:setopt_url(addr..what[i])
       local buf = dlbuf()
-      local bar, cbar = dlprogress('+ '..fill(fnames[i], len)..' | ', nil, opt)
+      local bar, cbar = dlprogress('+ '..fill(what[i], len)..' | ', nil, opt)
       ce:setopt_writefunction(buf)
       ce:setopt_progressfunction(bar)
       ce:perform()
@@ -358,12 +357,12 @@ local function download(addr, fnames, out, opt)
         bar(buf:len(), buf:len())
       end
       iow(opt, '\n') io.flush()
-      local f = assert(io.open(out..'/'..fnames[i], 'wb'))
+      local f = assert(io.open(out[i], 'wb'))
       buf:to(f)
       assert(f:close())
     end
   else
-    ce:setopt_url(addr..fnames)
+    ce:setopt_url(addr..what)
     local buf = dlbuf()
     ce:setopt_writefunction(buf)
     ce:perform()
@@ -656,7 +655,7 @@ end
 local function webrepo(opt)
   opt = optdefaults(opt)
   local addr = opt.repository or repoaddr
-  local repo = download(addr, '__repo.lua', nil, opt)
+  local repo = download(addr, '/repo', nil, opt)
   repo = assert(loadstring(repo))()
   return repo
 end
@@ -947,20 +946,20 @@ local function filenames_remove(repo)
 end
 
 local function pkgsdownload(fns, fvs, opt)
-  local todown = { }
+  local todown, tofiles = { }, { }
   for i=1,#fns do
-    local fname = fns[i]..'~'..fvs[i]..'.zip'
-    local pkgdir = hostpath..'/pkg'
-    local f = io.open(pkgdir..'/'..fname)
+    local pkgfile = hostpath..'/pkg'..'/'..fns[i]..'~'..fvs[i]..'.zip'
+    local f = io.open(pkgfile)
     if not f then
-      table.insert(todown, fname)
+      todown[#todown + 1] = '/pkg/'..fns[i]..'/'..fvs[i]
+      tofiles[#tofiles + 1] = pkgfile
     else
       f:close()
     end
   end
   if #todown > 0 then
     local addr = opt.repository or repoaddr
-    download(addr, todown, hostpath..'/pkg', opt)
+    download(addr, todown, tofiles, opt)
   end
 end
 
