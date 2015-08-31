@@ -1,10 +1,12 @@
 return {
-  version = "1.0.beta2",
+  name = "pkg",
+  version = "1.0.beta3",
   require = {
+    luajit = "2.0",
     cURL = "0.3.1",
     lfs  = "1.6.2",
   },
   license = "MIT <http://opensource.org/licenses/MIT>",
-  homepage = "http://scilua.org/universal",
+  homepage = "http://scilua.org/pkg.html",
   description = "Universal Lua Package Manager",
 }
