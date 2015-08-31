@@ -1169,5 +1169,6 @@ return {
     hostrepo    = hostrepo,
     okdeprepo   = okdeprepo,
     checkrepo   = checkrepo,
+    confirm     = confirm,
   }
 }
