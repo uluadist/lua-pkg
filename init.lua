@@ -178,7 +178,7 @@ end
 -- TODO: Document.
 
 -- TODO: Cygwin uses 'cyg' instead of 'lib' ?
-local function clibpath(name, clib)
+local function clibpath(modulename, clib)
   if jos ~= 'Windows' and clib:sub(1, 3) ~= 'lib' then
     clib = 'lib'..clib    
   end
@@ -186,17 +186,23 @@ local function clibpath(name, clib)
   if jos == 'OSX' then
     cpath = cpath:gsub('%.so', '.dylib') -- TODO: Check.
   end
-  return package.searchpath(name..'.'..jos..'.'..jarch..'.'..clib, cpath)
+  local path = (modulename..'.'..jos..'.'..jarch..'.'):gsub('%.', '@')..clib
+  return package.searchpath(path, cpath, '@')
 end
 
 -- For pre-loading of dynamic libraries loaded by module, either via explicit 
 -- loading via ffi.load() or via implicit loading if the result of ffi.load()
 -- or a CLua module depends on dynamic libraries.
 -- TODO: Do not unload the module in package.loaded, document.
-local function loadclib(name)
-  local _, _, clib = name:find('clib_([^.]*)') -- TODO: Check '%.' or '.'.
-  local path = clibpath(name, clib)
-  return path and ffi.load(path)
+local function loadclib(modulename, clib)
+  if not clib then
+    -- TODO: Check '%.' or '.' :
+    local _
+    _, _, clib = modulename:find('clib_([^.]*)')
+  end
+  local path = clibpath(modulename, clib)
+  local clib_loaded = path and ffi.load(path)
+  return clib_loaded
 end
 
 local rootpath = os.getenv('LUA_ROOT') 
