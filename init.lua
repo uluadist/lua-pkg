@@ -10,8 +10,14 @@
 local coremodule = { luajit = true, pkg = true }
 local repoaddr = 'http://ulua.scilua.org'
 
-local modp_root_ver_spec_fmt = '([^%.]*)%.(%d+_?%d*_?%d*_?%a*%d*%+?%d*)%.?(.*)'
+-- For paths I need to distinguish version folders: they are so if they are just
+-- after the root path and start with a digit.
+-- TODO: document!
+local modp_root_ver_spec_fmt = '([^%.]*)%.(%d+[^%.]*)%.?(.*)'
 local modp_root_spec_fmt     = '([^%.]*)%.?(.*)'
+
+-- TODO: Revise this! I am moving to true semantic versioning and users can 
+-- TODO: also create their version directories.
 local modz_root_ver_fmt      = '(.-)~(%d+%.?%d*%.?%d*%.?%a*%d*%-?%d*)%.zip'
 local ver_components_fmt     = '(%d+)%.?(%d*)%.?(%d*)%.?(%a*)(%d*)%-?(%d*)'
 
