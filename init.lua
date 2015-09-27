@@ -607,7 +607,8 @@ local syncedhostrepo = { }
 
 local function writebin(pkgbin, ext, relpath, bin)
   local cmd = pkgbin:gsub('{BIN}', relpath..'/'..bin)
-  local fname = rootpath..'/bin/'..bin..ext
+  local no_lua_ext_bin = bin:gsub('%.lua$', '')
+  local fname = rootpath..'/bin/'..no_lua_ext_bin..ext
   local f = assert(io.open(fname, 'w'..(ext == '' and 'b' or '')))
   f:write(cmd)
   assert(f:close())
