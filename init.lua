@@ -6,6 +6,7 @@
 -- TODO: Add safety against removal of user-developed modules, i.e. when 
 -- TODO: topath(info.version) is different from the installed version path.
 -- TODO: Verify downgrading core packages is safe.
+-- TODO: Do not use error with update() but goto.
 
 local coremodule = { luajit = true, pkg = true }
 local repoaddr = 'http://ulua.scilua.org'
@@ -190,10 +191,17 @@ local function clibpath(modulename, clib)
   return package.searchpath(path, cpath, '@')
 end
 
+local clib_cache = { }
+local ffiload = ffi.load
+
+-- TODO: Better to cache system libraries as well?
+ffi.load = function(name, global)
+  return clib_cache[name] or ffiload(name, global)
+end
+
 -- For pre-loading of dynamic libraries loaded by module, either via explicit 
 -- loading via ffi.load() or via implicit loading if the result of ffi.load()
 -- or a CLua module depends on dynamic libraries.
--- TODO: Do not unload the module in package.loaded, document.
 local function loadclib(modulename, clib)
   if not clib then
     -- TODO: Check '%.' or '.' :
@@ -201,8 +209,10 @@ local function loadclib(modulename, clib)
     _, _, clib = modulename:find('clib_([^.]*)')
   end
   local path = clibpath(modulename, clib)
-  local clib_loaded = path and ffi.load(path)
-  return clib_loaded
+  if path then 
+    -- TODO: Better to load with global?
+    clib_cache[clib] = ffiload(path)
+  end
 end
 
 local rootpath = os.getenv('LUA_ROOT') 
