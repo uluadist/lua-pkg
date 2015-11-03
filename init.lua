@@ -422,7 +422,7 @@ local function emptydir(path)
       if file ~= '.' and file ~= '..' then
         local f = path..'/'..file
         local attr = lfs.attributes(f)
-        if attr.mode == 'directory' then
+        if attr and attr.mode == 'directory' then -- Attr might be nil.
           emptydir(f) -- Recurse.
           lfs.rmdir(f)
         else
