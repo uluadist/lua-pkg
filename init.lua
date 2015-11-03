@@ -22,6 +22,8 @@ local modp_root_spec_fmt     = '([^%.]*)%.?(.*)'
 local modz_root_ver_fmt      = '(.-)~(%d+%.?%d*%.?%d*%.?%a*%d*%-?%d*)%.zip'
 local ver_components_fmt     = '(%d+)%.?(%d*)%.?(%d*)%.?(%a*)(%d*)%-?(%d*)'
 
+-- Standard path format: major, minor and patch always present, prerelease 
+-- optional, all separated by '_', build is optional and separated with '+'.
 local function topath(verstr)
   return verstr:gsub('%.', '_'):gsub('-', '+')
 end
@@ -39,24 +41,24 @@ end
 local luabincmd = [[
 @echo off
 SETLOCAL
-if defined LJ_VER (
-  if "%LJ_VER%"=="2.1" (
-    {V21CMD}
+if defined BIT (
+  if "%BIT%"=="32" (
+    SET LJ_ARCH=x86
   ) else (
-    if "%LJ_VER%"=="2.0" (
-      {V20CMD}
+    if "%BIT%"=="64" (
+      SET LJ_ARCH=x64
     ) else (
-      echo ERROR: LJ_VER=%LJ_VER% is not a valid version, use 2.0 or 2.1 1>&2 && exit /b 1
+      echo ERROR: BIT=%BIT% is not a valid setting, use 32 or 64 1>&2 && exit /b 1
     )
   )
 ) else (
-  {V00CMD}
+  SET LJ_ARCH=x86
 )
+SET LJ_VER_EXT={LJ_VER_EXT_CMD}
 SET LUA_ROOT=%~dp0
 SET LUA_ROOT=%LUA_ROOT:~0,-1%
 SET LUA_ROOT=%LUA_ROOT:\=/%
 SET LJ_SYS=Windows
-SET LJ_ARCH=x86
 SET LJ_CORE=%LUA_ROOT%/%LJ_VER_EXT%/%LJ_SYS%/%LJ_ARCH%
 SET LUA_PATH=%LUA_ROOT%/?/init.lua;%LUA_ROOT%/?.lua;%LJ_CORE%/?/init.lua;%LJ_CORE%/?.lua;
 SET LUA_CPATH=%LUA_ROOT%/?.dll;%LUA_ROOT%/loadall.dll;
@@ -65,17 +67,18 @@ SET LUA_CPATH=%LUA_ROOT%/?.dll;%LUA_ROOT%/loadall.dll;
 
 local luabinsh = [[
 #!/bin/bash
-if ! [ -z ${LJ_VER+x} ]; then
-  if [ "$LJ_VER" == "2.1" ]; then
-    {V21SH}
-  elif [ "$LJ_VER" == "2.0" ]; then
-    {V20SH}
+if ! [ -z ${BIT+x} ]; then
+  if [ "$BIT" == "32" ]; then
+    LJ_ARCH="x86"
+  elif [ "$BIT" == "64" ]; then
+    LJ_ARCH="x64"
   else
-    echo "ERROR: LJ_VER=$LJ_VER is not a valid version, use 2.0 or 2.1" 1>&2 && exit 1
+    echo "ERROR: BIT=$BIT is not a valid setting, use 32 or 64" 1>&2 && exit 1
   fi
 else
-  {V00SH}
+  LJ_ARCH="x86"
 fi
+LJ_VER_EXT={LJ_VER_EXT_SH}
 LUA_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 if [ "$(uname)" == "Darwin" ]; then
   LJ_SYS="OSX"
@@ -84,7 +87,6 @@ elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
 else
   echo "ERROR - Unsupported system: ""$(uname -s)" 1>&2 && exit 1
 fi
-LJ_ARCH="x86"
 LJ_CORE="$LUA_ROOT""/""$LJ_VER_EXT""/""$LJ_SYS""/""$LJ_ARCH"
 LUA_PATH="$LUA_ROOT""/?/init.lua;""$LUA_ROOT""/?.lua;""$LJ_CORE""/?/init.lua;""$LJ_CORE""/?.lua;"
 LUA_CPATH="$LUA_ROOT""/?.so;""$LUA_ROOT""/loadall.so;"
@@ -922,22 +924,12 @@ local function updateinit(addr, remr)
     updateinit1('lfs', infobestchk(hostr, 'lfs').version_dir) -- MODIFICATION.
   end
   if addr.luajit or remr.luajit then
-    local lua20 = infobest(hostr, 'luajit', '2.0',      2)
-    local lua21 = infobest(hostr, 'luajit', '2.1.head', 2)
-    local lua20ver = lua20 and 'luajit/'..lua20.version_dir
-    local lua21ver = lua21 and 'luajit/'..lua21.version_dir
+    local lua_supported = infobestchk(hostr, 'luajit', '2.1.head', 2)
+    local lua_supported_version_dir = 'luajit/'..lua_supported.version_dir
     local vermap = {
-      V20CMD = lua20ver and 'SET LJ_VER_EXT='..lua20ver or
-               'echo ERROR: luajit 2.0 not installed 1>&2 && exit /b 1',
-      V21CMD = lua21ver and 'SET LJ_VER_EXT='..lua21ver or
-               'echo ERROR: luajit 2.1 not installed 1>&2 && exit /b 1',
-      V20SH = lua20ver and 'LJ_VER_EXT="'..lua20ver..'"' or
-               'echo "ERROR: luajit 2.0 not installed" 1>&2 && exit 1',
-      V21SH = lua21ver and 'LJ_VER_EXT="'..lua21ver..'"' or
-               'echo "ERROR: luajit 2.1 not installed" 1>&2 && exit 1',      
+      LJ_VER_EXT_CMD = lua_supported_version_dir,
+      LJ_VER_EXT_SH  = '"'..lua_supported_version_dir..'"',
     }
-    vermap.V00CMD = lua21ver and vermap.V21CMD or vermap.V20CMD
-    vermap.V00SH = lua21ver and vermap.V21SH or vermap.V20SH
     local fcmd = assert(io.open(rootpath..'/lua.cmd', 'w'))
     fcmd:write((luabincmd:gsub('{(.-)}', vermap)))
     assert(fcmd:close())
