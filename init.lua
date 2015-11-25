@@ -9,7 +9,7 @@
 -- TODO: Do not use error with update() but goto.
 
 local coremodule = { luajit = true, pkg = true }
-local repoaddr = 'http://ulua.scilua.org'
+local repoaddr = 'http://pkg.ulua.io'
 
 -- For paths I need to distinguish version folders: they are so if they are just
 -- after the root path and start with a digit.
