@@ -37,7 +37,6 @@ local function modzrootver(s)
   return r, v
 end
 
--- TODO: Allow LJ_ARCH=x86/x64.
 local luabincmd = [[
 @echo off
 SETLOCAL
@@ -731,28 +730,33 @@ local function infopkg(repo, name, ver)
   io.write('license     : ', info.license     or '', '\n')
 end
 
-local updatedpkg = false
 local toupdate, performupdate
+
+local updated_pkg_msg = [[
+The package "pkg" needs to be updated before continuing with this operation.
+LuaJIT *will exit* to finalize such update.
+]]
 
 local function updatepkgmod(opt)
   local hostr, webr = hostrepo(), webrepo(opt)
-  if updatedpkg then
-    error('Restart LuaJIT to apply changes to module "pkg"')
-  else
-    local pkghost = infobestchk(hostr, 'pkg')
-    local pkgrepo = infobestchk(webr,  'pkg')
-    if verlt(pkghost.version, pkgrepo.version) then
-      io.write('Updated version of module "pkg" is available, updating:\n')
-      local addr, remr = { }, { }
-      toupdate('pkg', hostr, webr, addr, remr)
-      updatedpkg = performupdate(opt, addr, remr)
-      if updatedpkg then
-        error('Restart LuaJIT to apply changes to module "pkg"')
-      else
-        error('Module "pkg" must be updated')
-      end
+  -- if updatedpkg then
+  --   error('Restart LuaJIT to apply changes to module "pkg"')
+  -- else
+  local pkghost = infobestchk(hostr, 'pkg')
+  local pkgrepo = infobestchk(webr,  'pkg')
+  if verlt(pkghost.version, pkgrepo.version) then
+    io.write(updated_pkg_msg)
+    local addr, remr = { }, { }
+    toupdate('pkg', hostr, webr, addr, remr)
+    local updatedpkg = performupdate(opt, addr, remr)
+    if updatedpkg then
+      io.write('Exiting\n')
+      os.exit()
+    else
+      error('Operation canceled')
     end
   end
+  -- end
   return hostr, webr
 end
 
