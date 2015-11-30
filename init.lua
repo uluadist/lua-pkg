@@ -1,12 +1,10 @@
--- TODO: Add pkg.create().
--- TODO: Bin support in lj/bin (config.lua for version choice).
+-- TODO: Bin config.lua for version choice.
 -- TODO: Have status(), available(), return info tables.
--- TODO: We are sorting vinfo more then necessary, optimize.
+-- TODO: Optimize require and related functions for speed.
 -- TODO: Refactoring toward more readable code.
 -- TODO: Add safety against removal of user-developed modules, i.e. when 
 -- TODO: topath(info.version) is different from the installed version path.
 -- TODO: Verify downgrading core packages is safe.
--- TODO: Do not use error with update() but goto.
 
 local coremodule = { luajit = true, pkg = true }
 local repoaddr = 'http://pkg.ulua.io'
@@ -133,7 +131,7 @@ local function modprootverspec(s)
   else
     _, _, r, p = s:find(modp_root_spec_fmt)
     return r, '', p
-  end  
+  end
 end
 
 -- TODO: luasyssearcher(name) ?
@@ -216,21 +214,22 @@ local function loadclib(modulename, clib)
   end
 end
 
-local rootpath = os.getenv('LUA_ROOT') 
-local hostpath = rootpath and rootpath..'/host'
+local rootpath = os.getenv('LUA_ROOT')
 
-if not hostpath or not io.open(hostpath..'/init/__pkg.lua') then
+if not rootpath then
   -- Stop here, only pkg.loadclib is returned.
   return {
     loadclib = loadclib,
   }
 end
 
+local hostpath = rootpath and rootpath..'/host'
+
 --------------------------------------------------------------------------------
 -- Optional part: if used then packages must be managed via pkg module only.
 
-local lfs = require 'host.init.__lfs'
-local curl -- Loaded lazily to avoid circular dependency issue.
+-- Loaded lazily:
+local lfs, curl, serpent
 
 local function T(x, n, t, req)
   if (req or type(x) ~= 'nil') and type(x) ~= t then
@@ -258,7 +257,7 @@ local function copy(t)
   if type(t) ~= 'table' then return t end
   local o = { }
   for k,v in pairs(t) do 
-    o[k] = copy(v) 
+    o[k] = copy(v)
   end
   return o
 end
@@ -354,8 +353,8 @@ end
 
 -- TODO: Check failures: 
 local function download(addr, what, out, opt)
-  opt = optdefaults(opt)
   curl = curl or require 'cURL'
+  opt = optdefaults(opt)
   local ce = curl.easy()
   ce:setopt_failonerror(true)
   if opt and opt.proxy then
@@ -418,6 +417,7 @@ end
 
 -- Do its best to remove everything in a path, no error thrown.
 local function emptydir(path)
+  lfs = lfs or require 'host.init.__lfs'
   if lfs.attributes(path) and lfs.attributes(path).mode == 'directory' then
     for file in lfs.dir(path) do
       if file ~= '.' and file ~= '..' then
@@ -614,7 +614,7 @@ local function checkrepo(repo, onmissing)
   return miss
 end
 
-local syncedhostrepo = { }
+local syncedhostrepo
 
 local function writebin(pkgbin, ext, relpath, bin)
   local cmd = pkgbin:gsub('{BIN}', relpath..'/'..bin)
@@ -628,6 +628,7 @@ end
 
 -- Discover all name/version available modules and update the bin directory.
 local function updatehostrepo()
+  lfs = lfs or require 'host.init.__lfs'
   syncedhostrepo = { }
   for mod in lfs.dir(rootpath) do
     if mod ~= "." and mod ~= ".." then
@@ -646,11 +647,8 @@ local function updatehostrepo()
       end
     end
   end
-  -- Check for bin.
+  
   -- TODO: Make version to be called configurable.
-  -- TODO: Perform updating of bin directory only when necessary, i.e. when 
-  -- TODO: a package is removed, added, updated or when the preferred version 
-  -- TODO: to be called has been modified (NYI).
   if not lfs.attributes(rootpath..'/bin') then
     lfs.mkdir(rootpath..'/bin')
   end
@@ -667,13 +665,24 @@ local function updatehostrepo()
       end
     end
   end
+
+  serpent = serpent or require 'serpent' -- Now can be found.
+  local repocode = 'return '..serpent.block(syncedhostrepo, { comment = false })
+  local freponew = assert(io.open(hostpath..'/tmp/__repo.lua', 'w'))
+  freponew:write(repocode)
+  assert(freponew:close())
+  assert(os.rename(hostpath..'/tmp/__repo.lua', hostpath..'/init/__repo.lua'))
 end
 
-updatehostrepo()
-checkrepo(syncedhostrepo)
-
-local function hostrepo()
-  return copy(syncedhostrepo)
+local function loadhostrepo()
+  local ok, repo = pcall(function()
+    return dofile(hostpath..'/init/__repo.lua')
+  end)
+  if not ok then -- Attempt recovery.
+    updatehostrepo() -- Requires patched _G.require.
+  else
+    syncedhostrepo = repo
+  end
 end
 
 local function webrepo(opt)
@@ -738,10 +747,7 @@ LuaJIT *will exit* to finalize such update.
 ]]
 
 local function updatepkgmod(opt)
-  local hostr, webr = hostrepo(), webrepo(opt)
-  -- if updatedpkg then
-  --   error('Restart LuaJIT to apply changes to module "pkg"')
-  -- else
+  local hostr, webr = copy(syncedhostrepo), webrepo(opt)
   local pkghost = infobestchk(hostr, 'pkg')
   local pkgrepo = infobestchk(webr,  'pkg')
   if verlt(pkghost.version, pkgrepo.version) then
@@ -776,7 +782,7 @@ end
 local function status(name, ver)
   T(name, 1, 'string') T(ver, 2, 'string')
   name = name or '?'
-  local hostr = hostrepo()
+  local hostr = syncedhostrepo
   if name == '?' then
     io.write('Installed modules:\n', rtostr(hostr), '\n')
   elseif name:sub(1, 1) == '?' then
@@ -851,11 +857,12 @@ local reqstack = { }
 
 -- Cannot simply modify package.loaders as for versioned modules package.loaded
 -- must *not* be set equal to the (unversioned) module name.
+-- TODO: Optimize for speed.
 local function requirever(name, ver, opt)
   T(name, 1, 'string', true) T(ver, 2, 'string') T(opt, 3, 'table')
   -- 0: Give priority to versioned modules as module() or others might set
   --    loaded[name] breaking the 'load correct version' paradigm.
-  local hostr = hostrepo()
+  local hostr = syncedhostrepo or { } -- Can be null during recovery.
   local rootname, _, specname = modprootverspec(name)
   if hostr[rootname] then -- Requiring a versioned module.
     opt = optdefaults(opt)
@@ -914,18 +921,17 @@ local function updateinit1(fn, fv)
   assert(f:close())
 end
 
--- TODO: Add safety net, it's the only function that might leave system in 
--- TODO: inconsistent state.
+-- Update LuaJIT executable scripts.
 local function updateinit(addr, remr)
   updatehostrepo()
-  local hostr = hostrepo()
+  local hostr = syncedhostrepo
   addr = addr or { }
   remr = remr or { }
   if addr.pkg or remr.pkg then 
-    updateinit1('pkg', infobestchk(hostr, 'pkg').version_dir) -- MODIFICATION.
+    updateinit1('pkg', infobestchk(hostr, 'pkg').version_dir)
   end
   if addr.lfs or remr.lfs then
-    updateinit1('lfs', infobestchk(hostr, 'lfs').version_dir) -- MODIFICATION.
+    updateinit1('lfs', infobestchk(hostr, 'lfs').version_dir)
   end
   if addr.luajit or remr.luajit then
     local lua_supported = infobestchk(hostr, 'luajit', '2.1.head', 2)
@@ -992,6 +998,7 @@ local function pkgsunzip(fns, fvs)
 end
 
 local function pkgsinstall(fns, fvs)
+  lfs = lfs or require 'host.init.__lfs'
   for i=1,#fns do
     local fn, fv = fns[i], fvs[i]
     if not lfs.attributes(rootpath..'/'..fn) then
@@ -1001,11 +1008,12 @@ local function pkgsinstall(fns, fvs)
     if lfs.attributes(targetpath) then -- Should never happen.
       error('path "'..targetpath..'" already exists')
     end
-    assert(os.rename(hostpath..'/tmp/'..fn, targetpath)) -- MODIFICATION.
+    assert(os.rename(hostpath..'/tmp/'..fn, targetpath))
   end
 end
 
 local function pkgsremove(fns, fvs)
+  lfs = lfs or require 'host.init.__lfs'
   for i=1,#fns do
     local fn, fv = fns[i], fvs[i]
     local targetpath = rootpath..'/'..fn..'/'..fv
@@ -1013,8 +1021,8 @@ local function pkgsremove(fns, fvs)
       error('path "'..targetpath..'" does not exist')
     end
     local backuppath = hostpath..'/tmp/'..fn..'_'..fv
-    assert(os.rename(targetpath, backuppath)) -- MODIFICATION.
-    lfs.rmdir(rootpath..'/'..fn) -- Only if empty MODIFICATION.
+    assert(os.rename(targetpath, backuppath))
+    lfs.rmdir(rootpath..'/'..fn)
   end
 end
 
@@ -1074,7 +1082,7 @@ end, updatehostrepo)
 local function remove(name, version, opt)
   T(name, 1, 'string', true) T(version, 2, 'string') T(opt, 3, 'table')
   opt = optdefaults(opt)
-  local hostr = hostrepo()
+  local hostr = copy(syncedhostrepo)
   hasmod(hostr, name)
   -- Remove all matching modules.
   local remr = { }
@@ -1164,6 +1172,8 @@ end
 
 --------------------------------------------------------------------------------
 
+loadhostrepo()
+
 return {
   loadclib  = loadclib,
 
@@ -1185,7 +1195,6 @@ return {
     rtostr      = rtostr,
     infoinsert  = infoinsert,
     infobest    = infobest,
-    hostrepo    = hostrepo,
     okdeprepo   = okdeprepo,
     checkrepo   = checkrepo,
     confirm     = confirm,
