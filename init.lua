@@ -398,7 +398,12 @@ end
 
 local nullpath = jos == 'Windows' and 'nul' or '/dev/null'
 local pkgpath = rootpath..'/'..(...):gsub('%.', '/')..'/'
-local unzipcmd = esc((jos ~= 'OSX'     and pkgpath..jos..'/' or '')..'unzip')
+local unzipcmd = esc('unzip')
+if jos == 'Windows' then
+  unzipcmd = esc(pkgpath..jos..'/unzip')
+elseif jos == 'Linux' then
+  unzipcmd = esc(pkgpath..jos..'/'..jarch..'/unzip')
+end
 local chmodcmd = esc((jos == 'Windows' and pkgpath..jos..'/' or '')..'chmod')
 
 local function unzip(inpath, outpath)
@@ -671,7 +676,9 @@ local function updatehostrepo()
   local freponew = assert(io.open(hostpath..'/tmp/__repo.lua', 'w'))
   freponew:write(repocode)
   assert(freponew:close())
-  assert(os.rename(hostpath..'/tmp/__repo.lua', hostpath..'/init/__repo.lua'))
+  os.remove(hostpath..'/tmp/__repo.old') -- Delete if present.
+  os.rename(hostpath..'/init/__repo.lua', hostpath..'/tmp/__repo.old')
+  assert(os.rename(hostpath..'/tmp/__repo.lua',  hostpath..'/init/__repo.lua'))
 end
 
 local function loadhostrepo()
