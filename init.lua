@@ -1,3 +1,9 @@
+--------------------------------------------------------------------------------
+-- ULua package manager.
+--
+-- Copyright (C) 2015-2016 Stefano Peluchetti. All rights reserved.
+--------------------------------------------------------------------------------
+
 -- TODO: Bin config.lua for version choice.
 -- TODO: Have status(), available(), return info tables.
 -- TODO: Optimize require and related functions for speed.
