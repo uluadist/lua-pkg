@@ -1,4 +1,4 @@
-PKG: ULua Package Manager
+Pkg: ULua Package Manager
 =========================
 
 A simple but powerful package manager for the [ULua distribution](http://ulua.io).
