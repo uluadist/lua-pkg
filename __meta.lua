@@ -1,6 +1,6 @@
 return {
   name = "pkg",
-  version = "1.0.beta9",
+  version = "1.0.beta10",
   require = {
     luajit = "2.0",
     cURL = "0.3.1",
