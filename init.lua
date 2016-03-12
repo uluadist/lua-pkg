@@ -414,7 +414,8 @@ local chmodcmd = esc((jos == 'Windows' and pkgpath..jos..'/' or '')..'chmod')
 
 local function unzip(inpath, outpath)
   local cmd = unzipcmd..' -qq '..esc(inpath)..' -d '..esc(outpath)
-  if os.execute(jos == 'Windows' and esc(cmd) or cmd) ~= 0 then
+  local result = os.execute(jos == 'Windows' and esc(cmd) or cmd)
+  if not (result == 0 or result == true) then -- Support for LUA52COMPAT.
     error('failed to execute: '..cmd)
   end
 end
